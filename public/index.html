@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creador Loukai Stems</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 480px; width: 100%; }
+        h1 { font-size: 1.4rem; color: #00e676; margin-top: 0; text-align: center; }
+        .form-group { margin-bottom: 15px; text-align: left; }
+        label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px; }
+        input[type="text"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #fff; box-sizing: border-box; }
+        input[type="file"] { display: none; }
+        .file-btn { background: #333; padding: 14px; border-radius: 6px; cursor: pointer; display: block; text-align: center; border: 1px dashed #666; margin-bottom: 15px; }
+        .file-btn:hover { background: #3d3d3d; border-color: #00e676; }
+        button { background: #00e676; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; margin-top: 10px; }
+        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        #status { margin-top: 20px; font-size: 0.9rem; text-align: center; color: #ccc; white-space: pre-line; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>Creador Loukai Karaoke Stems</h1>
+
+    <!-- PASO 1: SELECCIONAR ARCHIVO -->
+    <div id="step1">
+        <label for="audioFile" class="file-btn" id="fileLabel">📁 Seleccionar Canción (MP3 / M4A / WAV)</label>
+        <input type="file" id="audioFile" accept="audio/*">
+    </div>
+
+    <!-- PASO 2: EDITAR METADATOS -->
+    <form id="metaForm" class="hidden">
+        <div class="form-group">
+            <label>Título de la Canción (Limpio):</label>
+            <input type="text" id="title" required>
+        </div>
+        <div class="form-group">
+            <label>Artista / Banda:</label>
+            <input type="text" id="artist" required>
+        </div>
+        <div class="form-group">
+            <label>Álbum (Opcional):</label>
+            <input type="text" id="album">
+        </div>
+        <div class="form-group">
+            <label>Año:</label>
+            <input type="text" id="year">
+        </div>
+        <button type="submit" id="btnProcess">⚙️ Generar Stem + Letras Sincronizadas</button>
+    </form>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    const audioInput = document.getElementById('audioFile');
+    const fileLabel = document.getElementById('fileLabel');
+    const metaForm = document.getElementById('metaForm');
+    const status = document.getElementById('status');
+    const btnProcess = document.getElementById('btnProcess');
+
+    let currentTempFile = '';
+    let songDuration = 0;
+    let songGenre = '';
+
+    // Al elegir archivo, sube para leer metadatos
+    audioInput.addEventListener('change', async () => {
+        if (!audioInput.files.length) return;
+
+        const file = audioInput.files[0];
+        fileLabel.textContent = `📄 ${file.name}`;
+        status.textContent = "🔍 Leyendo metadatos del archivo...";
+
+        const formData = new FormData();
+        formData.append('audio', file);
+
+        try {
+            const res = await fetch('/upload-preview', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (data.success) {
+                currentTempFile = data.tempFileName;
+                songDuration = data.metadata.duration;
+                songGenre = data.metadata.genre;
+
+                // Llenar el formulario con los metadatos leídos/limpios
+                document.getElementById('title').value = data.metadata.title;
+                document.getElementById('artist').value = data.metadata.artist;
+                document.getElementById('album').value = data.metadata.album;
+                document.getElementById('year').value = data.metadata.year;
+
+                metaForm.classList.remove('hidden');
+                status.textContent = "✏️ Revisa y corrige el título y artista antes de continuar.";
+            } else {
+                status.textContent = `❌ Error: ${data.error}`;
+            }
+        } catch (err) {
+            status.textContent = "❌ Error al analizar el archivo.";
+        }
+    });
+
+    // Confirmar metadatos y lanzar proceso de Demucs + Stem
+    metaForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        btnProcess.disabled = true;
+        status.textContent = "🎛️ Separando pistas con Demucs...\n(Este proceso puede demorar un par de minutos)";
+
+        const payload = {
+            tempFileName: currentTempFile,
+            title: document.getElementById('title').value,
+            artist: document.getElementById('artist').value,
+            album: document.getElementById('album').value,
+            year: document.getElementById('year').value,
+            genre: songGenre,
+            duration: songDuration
+        };
+
+        try {
+            const res = await fetch('/process-stem', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+
+            if (data.success) {
+                status.innerHTML = `✅ ¡Proceso completado!<br><br><a href="${data.downloadUrl}" style="color:#00e676; font-weight:bold; font-size:1.1rem;">⬇️ Descargar ${data.file}</a>`;
+            } else {
+                status.textContent = `❌ Error: ${data.error}`;
+            }
+        } catch (err) {
+            status.textContent = "❌ Error de comunicación con el servidor.";
+        } finally {
+            btnProcess.disabled = false;
+        }
+    });
+</script>
+
+</body>
+</html>
