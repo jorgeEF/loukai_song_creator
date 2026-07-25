@@ -237,13 +237,7 @@ app.post('/process-stem', async (req, res) => {
 		if (existsSync('./separated')) {
 			rmSync('./separated', { recursive: true, force: true });
 			mkdirSync('./separated', { recursive: true });
-		}
-		
-		// Limpiar procesamientos anteriores antes de ejecutar Demucs
-		if (existsSync('./input')) {
-			rmSync('./input', { recursive: true, force: true });
-			mkdirSync('./input', { recursive: true });
-		}
+		}		
 
         // 1. Separar pistas con Demucs
 		await runDemucs(inputMasterPath);
