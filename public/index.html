@@ -6,7 +6,7 @@
     <title>Creador Loukai Stems</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-        .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 480px; width: 100%; position: relative; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 520px; width: 100%; position: relative; }
         
         /* HEADER CON BOTÓN APAGAR */
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
@@ -29,7 +29,9 @@
 
         .form-group { margin-bottom: 15px; text-align: left; }
         label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px; }
-        input[type="text"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #fff; box-sizing: border-box; }
+        input[type="text"], textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #fff; box-sizing: border-box; }
+        textarea { font-family: monospace; height: 140px; resize: vertical; font-size: 0.85rem; }
+        
         input[type="file"] { display: none; }
         .file-btn { background: #333; padding: 14px; border-radius: 6px; cursor: pointer; display: block; text-align: center; border: 1px dashed #666; margin-bottom: 15px; }
         .file-btn:hover { background: #3d3d3d; border-color: #00e676; }
@@ -37,7 +39,15 @@
         .btn-main { background: #00e676; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; margin-top: 10px; }
         .btn-main:disabled { background: #444; color: #888; cursor: not-allowed; }
         
-        #status { margin-top: 20px; font-size: 0.9rem; text-align: center; color: #ccc; white-space: pre-line; }
+        .btn-secondary { background: #333; color: #fff; border: 1px solid #555; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 0.9rem; margin-top: 10px; }
+        .btn-secondary:hover { background: #444; }
+
+        .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; margin-bottom: 8px; }
+        .badge-success { background: #1b5e20; color: #81c784; }
+        .badge-warning { background: #e65100; color: #ffb74d; }
+
+        #logBox { background: #0a0a0a; color: #00ff66; font-family: monospace; padding: 12px; height: 180px; overflow-y: auto; border-radius: 6px; border: 1px solid #222; font-size: 0.8rem; white-space: pre-wrap; margin-top: 15px; text-align: left; }
+        #status { margin-top: 15px; font-size: 0.9rem; text-align: center; color: #ccc; white-space: pre-line; }
         .hidden { display: none; }
     </style>
 </head>
@@ -46,16 +56,16 @@
 <div class="card">
     <div class="card-header">
         <h1>Creador Loukai Karaoke Stems</h1>
-        <button type="button" id="btnShutdown" class="btn-shutdown" title="Cerrar aplicación y apagar servidor Node">🔴 Apagar App</button>
+        <button type="button" id="btnShutdown" class="btn-shutdown" title="Cerrar aplicación y apagar servidor Node">Apagar App</button>
     </div>
 
     <!-- PASO 1: SELECCIONAR ARCHIVO -->
     <div id="step1">
-        <label for="audioFile" class="file-btn" id="fileLabel">📁 Seleccionar Canción (MP3 / M4A / WAV)</label>
+        <label for="audioFile" class="file-btn" id="fileLabel">Seleccionar Canción (MP3 / M4A / WAV)</label>
         <input type="file" id="audioFile" accept="audio/*">
     </div>
 
-    <!-- PASO 2: EDITAR METADATOS -->
+    <!-- PASO 2: EDITAR METADATOS Y LETRA -->
     <form id="metaForm" class="hidden">
         <div class="form-group">
             <label>Título de la Canción (Limpio):</label>
@@ -73,8 +83,27 @@
             <label>Año:</label>
             <input type="text" id="year">
         </div>
-        <button type="submit" id="btnProcess" class="btn-main">⚙️ Generar Stem + Letras Sincronizadas</button>
+        
+        <div class="form-group">
+            <label>Letra Sincronizada (LRC):</label>
+            <span id="lyricsStatus" class="status-badge"></span>
+            <textarea id="rawLrc" placeholder="[00:12.34] Texto de la letra..."></textarea>
+            <small style="color: #888; font-size: 0.75rem;">Podés corregir las líneas o agregar tu propio formato LRC antes de procesar.</small>
+        </div>
+
+        <button type="submit" id="btnProcess" class="btn-main">?? Generar Stem + Letras Sincronizadas</button>
     </form>
+
+    <!-- PASO 3: CONSOLA DE PROCESO Y DESCARGA -->
+    <div id="processSection" class="hidden">
+        <div id="logBox"></div>
+        <div id="downloadContainer" class="hidden" style="margin-top: 15px;">
+            <a id="btnDownload" href="#" download style="text-decoration: none;">
+                <button type="button" class="btn-main" style="background: #00e676;">Descargar Stem MP4</button>
+            </a>
+            <button type="button" id="btnReset" class="btn-secondary">Generar otra canción</button>
+        </div>
+    </div>
 
     <div id="status"></div>
 </div>
@@ -82,35 +111,44 @@
 <script>
     const audioInput = document.getElementById('audioFile');
     const fileLabel = document.getElementById('fileLabel');
+    const step1 = document.getElementById('step1');
     const metaForm = document.getElementById('metaForm');
+    const processSection = document.getElementById('processSection');
+    const logBox = document.getElementById('logBox');
+    const downloadContainer = document.getElementById('downloadContainer');
     const status = document.getElementById('status');
+    
     const btnProcess = document.getElementById('btnProcess');
     const btnShutdown = document.getElementById('btnShutdown');
+    const btnReset = document.getElementById('btnReset');
+    const btnDownload = document.getElementById('btnDownload');
+    const lyricsStatus = document.getElementById('lyricsStatus');
+    const rawLrc = document.getElementById('rawLrc');
 
     let currentTempFile = '';
     let songDuration = 0;
     let songGenre = '';
 
-    // LÓGICA APAGAR SERVIDOR
+    // APAGAR SERVIDOR
     btnShutdown.addEventListener('click', async () => {
-        if (confirm('¿Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
-            status.textContent = "🛑 Apagando el servidor Node.js...";
+        if (confirm('?Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
+            status.textContent = "Apagando el servidor Node.js...";
             try {
                 await fetch('/shutdown', { method: 'POST' });
-                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>🔴 La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pestaña del navegador.</p></div>';
+                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pesta?a del navegador.</p></div>';
             } catch (err) {
-                status.textContent = "❌ No se pudo conectar con el servidor (posiblemente ya esté apagado).";
+                status.textContent = "No se pudo conectar con el servidor (posiblemente ya está apagado).";
             }
         }
     });
 
-    // Al elegir archivo, sube para leer metadatos
+    // SUBIR Y PREVIEW (METADATOS + LETRA)
     audioInput.addEventListener('change', async () => {
         if (!audioInput.files.length) return;
 
         const file = audioInput.files[0];
-        fileLabel.textContent = `📄 ${file.name}`;
-        status.textContent = "🔍 Leyendo metadatos del archivo...";
+        fileLabel.textContent = `${file.name}`;
+        status.textContent = "Leyendo metadatos y buscando letra...";
 
         const formData = new FormData();
         formData.append('audio', file);
@@ -129,22 +167,36 @@
                 document.getElementById('album').value = data.metadata.album;
                 document.getElementById('year').value = data.metadata.year;
 
+                // Cargar letra sincronizada obtenida
+                if (data.lyrics && data.lyrics.found) {
+                    lyricsStatus.textContent = "Letra sincronizada encontrada";
+                    lyricsStatus.className = "status-badge badge-success";
+                    rawLrc.value = data.lyrics.rawLrc;
+                } else {
+                    lyricsStatus.textContent = "No se encontró letra automática";
+                    lyricsStatus.className = "status-badge badge-warning";
+                    rawLrc.value = "";
+                }
+
                 metaForm.classList.remove('hidden');
-                status.textContent = "✏️ Revisa y corrige el título y artista antes de continuar.";
+                status.textContent = "Revisa los datos y la letra antes de continuar.";
             } else {
-                status.textContent = `❌ Error: ${data.error}`;
+                status.textContent = `Error: ${data.error}`;
             }
         } catch (err) {
-            status.textContent = "❌ Error al analizar el archivo.";
+            status.textContent = "Error al analizar el archivo.";
         }
     });
 
-    // Confirmar metadatos y lanzar proceso de Demucs + Stem
+    // PROCESAR (STREAM SSE)
     metaForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        btnProcess.disabled = true;
-        status.textContent = "🎛️ Separando pistas con Demucs...\n(Este proceso puede demorar un par de minutos)";
+        metaForm.classList.add('hidden');
+        step1.classList.add('hidden');
+        processSection.classList.remove('hidden');
+        logBox.textContent = "";
+        status.textContent = "";
 
         const payload = {
             tempFileName: currentTempFile,
@@ -153,28 +205,63 @@
             album: document.getElementById('album').value,
             year: document.getElementById('year').value,
             genre: songGenre,
-            duration: songDuration
+            duration: songDuration,
+            rawLrc: rawLrc.value
         };
 
         try {
-            const res = await fetch('/process-stem', {
+            const response = await fetch('/process-stem', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
 
-            const data = await res.json();
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
 
-            if (data.success) {
-                status.innerHTML = `✅ ¡Proceso completado!<br><br><a href="${data.downloadUrl}" style="color:#00e676; font-weight:bold; font-size:1.1rem;">⬇️ Descargar ${data.file}</a>`;
-            } else {
-                status.textContent = `❌ Error: ${data.error}`;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value);
+                const lines = text.split('\n\n');
+
+                lines.forEach(line => {
+                    if (line.startsWith('data: ')) {
+                        const data = JSON.parse(line.replace('data: ', ''));
+                        if (data.type === 'log') {
+                            logBox.textContent += data.message + '\n';
+                            logBox.scrollTop = logBox.scrollHeight;
+                        } else if (data.type === 'done') {
+                            btnDownload.href = data.downloadUrl;
+                            downloadContainer.classList.remove('hidden');
+                            status.textContent = "Proceso finalizado con éxito!";
+                        } else if (data.type === 'error') {
+                            logBox.textContent += "\n ERROR: " + data.error + '\n';
+                            status.textContent = "Ocurrió un error en el procesamiento.";
+                        }
+                    }
+                });
             }
         } catch (err) {
-            status.textContent = "❌ Error de comunicación con el servidor.";
-        } finally {
-            btnProcess.disabled = false;
+            status.textContent = "? Error de comunicación con el servidor.";
         }
+    });
+
+    // REINICIAR (GENERAR OTRA CANCIÓN)
+    btnReset.addEventListener('click', () => {
+        audioInput.value = "";
+        fileLabel.textContent = "Seleccionar Canción (MP3 / M4A / WAV)";
+        currentTempFile = '';
+        songDuration = 0;
+        songGenre = '';
+        rawLrc.value = '';
+
+        metaForm.classList.add('hidden');
+        processSection.classList.add('hidden');
+        downloadContainer.classList.add('hidden');
+        step1.classList.remove('hidden');
+        status.textContent = "";
     });
 </script>
 

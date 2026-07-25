@@ -17,6 +17,36 @@ app.use(fileUpload({ useTempFiles: true, tempFileDir: './tmp/' }));
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 });
 
+// --- HELPER: Parsear texto LRC manual a la estructura requerida por KaraAtom ---
+function parseLrcToLines(lrcText) {
+    const defaultLine = [{ 
+        start: 0, 
+        end: 10, 
+        text: "JF Soluciones karaoke ready", 
+        words: { timings: [[0, 10]] } 
+    }];
+
+    if (!lrcText || !lrcText.trim()) return defaultLine;
+
+    const rawLines = lrcText.split('\n').filter(line => line.includes(']'));
+    const lines = rawLines.map((line, index, array) => {
+        const match = line.match(/\[(\d+):(\d+\.\d+)\]\s*(.*)/);
+        if (!match) return null;
+
+        const start = parseInt(match[1]) * 60 + parseFloat(match[2]);
+        const text = match[3].trim() || "...";
+
+        let end = start + 3; 
+        if (array[index + 1]) {
+            const nextMatch = array[index + 1].match(/\[(\d+):(\d+\.\d+)\]/);
+            if (nextMatch) end = parseInt(nextMatch[1]) * 60 + parseFloat(nextMatch[2]);
+        }
+        return { start, end, text, words: { timings: [[0, end - start]] } };
+    }).filter(l => l !== null);
+
+    return lines.length > 0 ? lines : defaultLine;
+}
+
 // --- METADATOS CON FFPROBE ---
 function getMetadata(file) {
     return new Promise((resolve, reject) => {
@@ -34,7 +64,6 @@ function getMetadata(file) {
                 const format = JSON.parse(output).format || {};
                 const tags = format.tags || {};
                 
-                // Limpieza preventiva de título (quita '01. ', '02 - ', etc.)
                 const rawTitle = tags.title || path.parse(file).name;
                 const cleanTitle = rawTitle.replace(/^\d+(\.\d+)?[.-]\s*/, "").trim();
 
@@ -53,59 +82,34 @@ function getMetadata(file) {
     });
 }
 
-// --- BÚSQUEDA DE LETRAS ---
-async function fetchLyrics(meta) {
+// --- BÚSQUEDA PREVIA DE LETRAS EN LRCLIB ---
+async function fetchLyricsPreview(meta) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
 
     const url = `https://lrclib.net/api/get?artist_name=${encodeURIComponent(meta.artist)}&track_name=${encodeURIComponent(meta.title)}&album_name=${encodeURIComponent(meta.album)}&duration=${meta.duration}`;
 
-    const safeLine = [{ 
-        start: 0, 
-        end: 10, 
-        text: "JF Soluciones karaoke ready", 
-        words: { timings: [[0, 10]] } 
-    }];
-
     try {
-        console.log(`🌐 Buscando letras en LRCLIB: ${meta.artist} - ${meta.title}`);
+        console.log(`🌐 Pre-buscando letras en LRCLIB: ${meta.artist} - ${meta.title}`);
         const response = await fetch(url, {
             signal: controller.signal,
             headers: { 'User-Agent': 'JF-Soluciones-Karaoke-Gen (https://jfsoluciones.com.ar)' }
         });
 
         clearTimeout(timeout);
-        if (!response.ok) return safeLine;
+        if (!response.ok) return { found: false, rawLrc: "" };
 
         const data = await response.json();
-        if (!data.syncedLyrics) return safeLine;
+        if (!data.syncedLyrics) return { found: false, rawLrc: "" };
 
-        const lines = data.syncedLyrics.split('\n')
-            .filter(line => line.includes(']'))
-            .map((line, index, array) => {
-                const match = line.match(/\[(\d+):(\d+\.\d+)\]\s*(.*)/);
-                if (!match) return null;
-
-                const start = parseInt(match[1]) * 60 + parseFloat(match[2]);
-                const text = match[3].trim() || "...";
-
-                let end = start + 3; 
-                if (array[index + 1]) {
-                    const nextMatch = array[index + 1].match(/\[(\d+):(\d+\.\d+)\]/);
-                    if (nextMatch) end = parseInt(nextMatch[1]) * 60 + parseFloat(nextMatch[2]);
-                }
-                return { start, end, text, words: { timings: [[0, end - start]] } };
-            }).filter(l => l !== null);
-
-        return lines.length > 0 ? lines : safeLine;
-
+        return { found: true, rawLrc: data.syncedLyrics };
     } catch {
         clearTimeout(timeout);
-        return safeLine;
+        return { found: false, rawLrc: "" };
     }
 }
 
-// --- CONVERSIÓN A M4A (128k) ---
+// --- CONVERSIÓN A M4A ---
 function convertToM4a(inputPath, outputPath) {
     return new Promise((resolve, reject) => {
         const ffmpeg = spawn('ffmpeg', [
@@ -126,10 +130,10 @@ function convertToM4a(inputPath, outputPath) {
     });
 }
 
-// --- EJECUCIÓN DE DEMUCS DIRECTO A MP3 (192k) ---
-function runDemucs(inputFile) {
+// --- EJECUCIÓN DE DEMUCS CON EMISIÓN DE LOGS ---
+function runDemucs(inputFile, onLog) {
     return new Promise((resolve, reject) => {
-        console.log("🎛️ Ejecutando Demucs...");
+        onLog("🎛️ Iniciando separación de stems con Demucs...");
         
         const demucs = spawn('cmd.exe', [
             '/c', 'demucs',
@@ -141,10 +145,14 @@ function runDemucs(inputFile) {
         ]);
 
         let errorMsg = '';
-        demucs.stdout.on('data', data => console.log(`[Demucs]: ${data.toString().trim()}`));
+        demucs.stdout.on('data', data => {
+            const str = data.toString().trim();
+            if (str) onLog(`[Demucs]: ${str}`);
+        });
+        
         demucs.stderr.on('data', data => {
-            const str = data.toString();
-            console.log(`[Demucs log]: ${str.trim()}`);
+            const str = data.toString().trim();
+            if (str) onLog(`[Demucs log]: ${str}`);
             errorMsg += str;
         });
 
@@ -155,7 +163,7 @@ function runDemucs(inputFile) {
     });
 }
 
-// --- FFMPEG (Ensamblado final de pistas) ---
+// --- FFMPEG ---
 function runFFmpeg(config) {
     return new Promise((resolve, reject) => {
         const args = [];
@@ -195,7 +203,7 @@ function runFFmpeg(config) {
     });
 }
 
-// ================= RUTA 1: SUBIR Y LEER METADATOS =================
+// ================= RUTA 1: SUBIR Y MOSTRAR PREVIEW + LETRAS =================
 app.post('/upload-preview', async (req, res) => {
     if (!req.files || !req.files.audio) {
         return res.status(400).json({ error: 'No se subió ningún archivo' });
@@ -208,12 +216,14 @@ app.post('/upload-preview', async (req, res) => {
     try {
         await audioFile.mv(tempPath);
         const meta = await getMetadata(tempPath);
+        const lyricsData = await fetchLyricsPreview(meta);
 
         res.json({
             success: true,
             tempFileName: tempFileName,
             originalName: audioFile.name,
-            metadata: meta
+            metadata: meta,
+            lyrics: lyricsData
         });
     } catch (error) {
         if (existsSync(tempPath)) unlinkSync(tempPath);
@@ -221,68 +231,62 @@ app.post('/upload-preview', async (req, res) => {
     }
 });
 
-// ================= RUTA 2: SEPARAR CON DEMUCS Y GENERAR STEM =================
+// ================= RUTA 2: SEPARACIÓN Y COMPILACIÓN FINAL (SSE LOGS) =================
 app.post('/process-stem', async (req, res) => {
-    const { tempFileName, title, artist, album, year, genre, duration } = req.body;
+    // Configuramos SSE para enviar eventos en tiempo real
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    const sendLog = (msg) => {
+        res.write(`data: ${JSON.stringify({ type: 'log', message: msg })}\n\n`);
+    };
+
+    const { tempFileName, title, artist, album, year, genre, duration, rawLrc } = req.body;
     const inputMasterPath = path.join('./input', tempFileName);
 
     if (!existsSync(inputMasterPath)) {
-        return res.status(400).json({ error: 'El archivo temporal expiró o no existe.' });
+        res.write(`data: ${JSON.stringify({ type: 'error', error: 'El archivo temporal expiró o no existe.' })}\n\n`);
+        return res.end();
     }
 
     try {
         const meta = { title, artist, album, year, genre, duration: parseInt(duration) };
-		
-		// Limpiar procesamientos anteriores antes de ejecutar Demucs
-		if (existsSync('./separated')) {
-			rmSync('./separated', { recursive: true, force: true });
-			mkdirSync('./separated', { recursive: true });
-		}		
+        
+        if (existsSync('./separated')) {
+            rmSync('./separated', { recursive: true, force: true });
+            mkdirSync('./separated', { recursive: true });
+        }       
 
-        // 1. Separar pistas con Demucs
-		await runDemucs(inputMasterPath);
+        // 1. Demucs
+        await runDemucs(inputMasterPath, sendLog);
 
-		// --- SOLUCIÓN: Búsqueda recursiva del directorio final de stems ---
-		function findStemFolder(dir) {
-			if (!existsSync(dir)) return null;
-			const entries = readdirSync(dir, { withFileTypes: true });
+        function findStemFolder(dir) {
+            if (!existsSync(dir)) return null;
+            const entries = readdirSync(dir, { withFileTypes: true });
+            const hasStems = entries.some(e => e.isFile() && e.name.startsWith('drums'));
+            if (hasStems) return dir;
 
-			// Si encontramos alguno de los stems (.mp3 o .wav), este es el directorio correcto
-			const hasStems = entries.some(e => e.isFile() && e.name.startsWith('drums'));
-			if (hasStems) return dir;
+            for (const entry of entries) {
+                if (entry.isDirectory()) {
+                    const found = findStemFolder(path.join(dir, entry.name));
+                    if (found) return found;
+                }
+            }
+            return null;
+        }
 
-			// Si no, seguimos buscando en subcarpetas
-			for (const entry of entries) {
-				if (entry.isDirectory()) {
-					const found = findStemFolder(path.join(dir, entry.name));
-					if (found) return found;
-				}
-			}
-			return null;
-		}
+        const stemDir = findStemFolder('./separated');
+        if (!stemDir) throw new Error("No se encontraron las pistas generadas por Demucs.");
 
-		const separatedBaseDir = path.join('./separated');
-		const stemDir = findStemFolder(separatedBaseDir);
-
-		if (!stemDir) {
-			throw new Error(`Demucs terminó, pero no se encontraron los archivos de audio en ${separatedBaseDir}`);
-		}
-
-		console.log(`📂 Carpeta de stems localizada en: ${stemDir}`);
-
-        // 2. Localizar y Convertir dinámicamente los 4 stems a M4A (128k)
-        console.log(`🔄 Verificando archivos en ${stemDir} y codificando stems a M4A (128kbps)...`);
+        sendLog("🔄 Codificando pistas individuales a M4A (128kbps)...");
         const stemNames = ['drums', 'bass', 'other', 'vocals'];
         const m4aFiles = {};
-
         const filesInDir = readdirSync(stemDir);
 
         for (const stem of stemNames) {
             const foundFile = filesInDir.find(f => f.startsWith(stem));
-
-            if (!foundFile) {
-                throw new Error(`No se encontró la pista ${stem} en la carpeta ${stemDir}`);
-            }
+            if (!foundFile) throw new Error(`Falta el archivo para la pista ${stem}`);
 
             const sourcePath = path.join(stemDir, foundFile);
             const m4aPath = path.join(stemDir, `${stem}_converted.m4a`);
@@ -291,24 +295,23 @@ app.post('/process-stem', async (req, res) => {
             m4aFiles[stem] = m4aPath;
         }
 
-        // 3. Inputs exactos para el paquete de 5 canales
         const inputs = [
-            inputMasterPath,     // Canal 0: Master original
-            m4aFiles['drums'],   // Canal 1: Drums
-            m4aFiles['bass'],    // Canal 2: Bass
-            m4aFiles['other'],   // Canal 3: Other
-            m4aFiles['vocals']   // Canal 4: Vocals
+            inputMasterPath,
+            m4aFiles['drums'],
+            m4aFiles['bass'],
+            m4aFiles['other'],
+            m4aFiles['vocals']
         ];
 
-        // 4. Buscar letras sincronizadas
-        const lyricsLines = await fetchLyrics(meta);
+        // 2. Parsear el texto LRC que vino desde el cliente
+        sendLog("📝 Sincronizando letra en formato karaoke...");
+        const lyricsLines = parseLrcToLines(rawLrc);
 
-        // 5. Empaquetar el .stem.mp4 con FFmpeg e inyección de átomos
         const safeName = `${artist} - ${title}`.replace(/[<>:"/\\|?*]/g, "").trim();
         const outputPath = path.join('./output', `${safeName}.stem.mp4`);
 
         const config = {
-            inputs: inputs,
+            inputs,
             output: outputPath,
             metadata: meta,
             kara: {
@@ -317,60 +320,47 @@ app.post('/process-stem', async (req, res) => {
             }
         };
 
-        console.log("🚀 Uniendo pistas con FFmpeg...");
+        sendLog("🚀 Uniendo pistas y empaquetando MP4...");
         await runFFmpeg(config);
 
-        console.log("🛠️ Inyectando átomos NI Stem...");
+        sendLog("🛠️ Inyectando átomos NI Stem y metadata de karaoke...");
         await Atoms.writeKaraAtom(config.output, config.kara);
         await Atoms.addNiStemsMetadata(config.output, ['drums', 'bass', 'other', 'vocals']);
 
-        // Limpieza de carpeta temporal
         rmSync(stemDir, { recursive: true, force: true });
         unlinkSync(inputMasterPath);
 
-        res.json({
-            success: true,
-            file: `${safeName}.stem.mp4`,
-            downloadUrl: `/download/${encodeURIComponent(`${safeName}.stem.mp4`)}`
-        });
+        sendLog("✅ ¡Proceso finalizado con éxito!");
+        res.write(`data: ${JSON.stringify({ 
+            type: 'done', 
+            file: `${safeName}.stem.mp4`, 
+            downloadUrl: `/download/${encodeURIComponent(`${safeName}.stem.mp4`)}` 
+        })}\n\n`);
+        res.end();
 
     } catch (error) {
-        console.error("❌ Error:", error);
         if (existsSync(inputMasterPath)) unlinkSync(inputMasterPath);
-        res.status(500).json({ error: error.toString() });
+        res.write(`data: ${JSON.stringify({ type: 'error', error: error.toString() })}\n\n`);
+        res.end();
     }
 });
 
 app.get('/download/:filename', (req, res) => {
     const file = path.join('./output', req.params.filename);
-    if (existsSync(file)) {
-        res.download(file);
-    } else {
-        res.status(404).send('Archivo no encontrado');
-    }
+    if (existsSync(file)) res.download(file);
+    else res.status(404).send('Archivo no encontrado');
 });
 
-// app.listen(PORT, () => {
-    // console.log(`🌐 Servidor corriendo en http://localhost:${PORT}`);
-// });
+app.post('/shutdown', (req, res) => {
+    res.json({ success: true, message: 'Servidor deteniéndose...' });
+    setTimeout(() => process.exit(0), 1000);
+});
+
 app.listen(PORT, async () => {
     console.log(`🌐 Servidor corriendo en http://localhost:${PORT}`);
-    
     try {
         await open(`http://127.0.0.1:${PORT}`, { app: { name: apps.browser } });
     } catch (err) {
         console.error('Error abriendo navegador:', err);
     }
-});
-
-// Ruta para apagar el servidor de forma segura
-app.post('/shutdown', (req, res) => {
-    res.json({ success: true, message: 'Servidor deteniéndose...' });
-    
-    console.log('🛑 Cerrando servidor por solicitud del usuario...');
-    
-    // Le damos 1 segundo al cliente para recibir la respuesta JSON antes de apagar
-    setTimeout(() => {
-        process.exit(0); // 0 indica salida limpia/exitosa
-    }, 1000);
 });
