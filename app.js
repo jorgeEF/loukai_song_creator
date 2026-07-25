@@ -4,6 +4,7 @@ import { spawn } from 'child_process';
 import { Atoms } from 'm4a-stems';
 import path from 'path';
 import fs, { existsSync, mkdirSync, unlinkSync, rmSync, readdirSync } from 'fs';
+import open, { apps } from 'open';
 
 const app = express();
 const PORT = 3000;
@@ -355,6 +356,27 @@ app.get('/download/:filename', (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
+// app.listen(PORT, () => {
+    // console.log(`🌐 Servidor corriendo en http://localhost:${PORT}`);
+// });
+app.listen(PORT, async () => {
     console.log(`🌐 Servidor corriendo en http://localhost:${PORT}`);
+    
+    try {
+        await open(`http://127.0.0.1:${PORT}`, { app: { name: apps.browser } });
+    } catch (err) {
+        console.error('Error abriendo navegador:', err);
+    }
+});
+
+// Ruta para apagar el servidor de forma segura
+app.post('/shutdown', (req, res) => {
+    res.json({ success: true, message: 'Servidor deteniéndose...' });
+    
+    console.log('🛑 Cerrando servidor por solicitud del usuario...');
+    
+    // Le damos 1 segundo al cliente para recibir la respuesta JSON antes de apagar
+    setTimeout(() => {
+        process.exit(0); // 0 indica salida limpia/exitosa
+    }, 1000);
 });

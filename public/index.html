@@ -6,16 +6,37 @@
     <title>Creador Loukai Stems</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
-        .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 480px; width: 100%; }
-        h1 { font-size: 1.4rem; color: #00e676; margin-top: 0; text-align: center; }
+        .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 480px; width: 100%; position: relative; }
+        
+        /* HEADER CON BOTÓN APAGAR */
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        h1 { font-size: 1.3rem; color: #00e676; margin: 0; }
+        
+        .btn-shutdown { 
+            background: #2a2a2a; 
+            color: #ff5252; 
+            border: 1px solid #ff5252; 
+            padding: 6px 12px; 
+            border-radius: 6px; 
+            font-size: 0.8rem; 
+            font-weight: bold; 
+            cursor: pointer; 
+            transition: all 0.2s ease;
+            width: auto;
+            margin-top: 0;
+        }
+        .btn-shutdown:hover { background: #ff5252; color: #fff; }
+
         .form-group { margin-bottom: 15px; text-align: left; }
         label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px; }
         input[type="text"] { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a2a; color: #fff; box-sizing: border-box; }
         input[type="file"] { display: none; }
         .file-btn { background: #333; padding: 14px; border-radius: 6px; cursor: pointer; display: block; text-align: center; border: 1px dashed #666; margin-bottom: 15px; }
         .file-btn:hover { background: #3d3d3d; border-color: #00e676; }
-        button { background: #00e676; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; margin-top: 10px; }
-        button:disabled { background: #444; color: #888; cursor: not-allowed; }
+        
+        .btn-main { background: #00e676; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; margin-top: 10px; }
+        .btn-main:disabled { background: #444; color: #888; cursor: not-allowed; }
+        
         #status { margin-top: 20px; font-size: 0.9rem; text-align: center; color: #ccc; white-space: pre-line; }
         .hidden { display: none; }
     </style>
@@ -23,7 +44,10 @@
 <body>
 
 <div class="card">
-    <h1>Creador Loukai Karaoke Stems</h1>
+    <div class="card-header">
+        <h1>Creador Loukai Karaoke Stems</h1>
+        <button type="button" id="btnShutdown" class="btn-shutdown" title="Cerrar aplicación y apagar servidor Node">🔴 Apagar App</button>
+    </div>
 
     <!-- PASO 1: SELECCIONAR ARCHIVO -->
     <div id="step1">
@@ -49,7 +73,7 @@
             <label>Año:</label>
             <input type="text" id="year">
         </div>
-        <button type="submit" id="btnProcess">⚙️ Generar Stem + Letras Sincronizadas</button>
+        <button type="submit" id="btnProcess" class="btn-main">⚙️ Generar Stem + Letras Sincronizadas</button>
     </form>
 
     <div id="status"></div>
@@ -61,10 +85,24 @@
     const metaForm = document.getElementById('metaForm');
     const status = document.getElementById('status');
     const btnProcess = document.getElementById('btnProcess');
+    const btnShutdown = document.getElementById('btnShutdown');
 
     let currentTempFile = '';
     let songDuration = 0;
     let songGenre = '';
+
+    // LÓGICA APAGAR SERVIDOR
+    btnShutdown.addEventListener('click', async () => {
+        if (confirm('¿Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
+            status.textContent = "🛑 Apagando el servidor Node.js...";
+            try {
+                await fetch('/shutdown', { method: 'POST' });
+                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>🔴 La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pestaña del navegador.</p></div>';
+            } catch (err) {
+                status.textContent = "❌ No se pudo conectar con el servidor (posiblemente ya esté apagado).";
+            }
+        }
+    });
 
     // Al elegir archivo, sube para leer metadatos
     audioInput.addEventListener('change', async () => {
@@ -86,7 +124,6 @@
                 songDuration = data.metadata.duration;
                 songGenre = data.metadata.genre;
 
-                // Llenar el formulario con los metadatos leídos/limpios
                 document.getElementById('title').value = data.metadata.title;
                 document.getElementById('artist').value = data.metadata.artist;
                 document.getElementById('album').value = data.metadata.album;
