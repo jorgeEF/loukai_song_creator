@@ -93,7 +93,7 @@ async function fetchLyricsPreview(meta) {
         console.log(`🌐 Pre-buscando letras en LRCLIB: ${meta.artist} - ${meta.title}`);
         const response = await fetch(url, {
             signal: controller.signal,
-            headers: { 'User-Agent': 'JF-Soluciones-Karaoke-Gen (https://jfsoluciones.com.ar)' }
+            headers: { 'User-Agent': 'Loukai-Song-Creator-By-jeF' }
         });
 
         clearTimeout(timeout);

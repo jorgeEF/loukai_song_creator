@@ -91,7 +91,7 @@
             <small style="color: #888; font-size: 0.75rem;">Podés corregir las líneas o agregar tu propio formato LRC antes de procesar.</small>
         </div>
 
-        <button type="submit" id="btnProcess" class="btn-main">?? Generar Stem + Letras Sincronizadas</button>
+        <button type="submit" id="btnProcess" class="btn-main">Generar Stem + Letras Sincronizadas</button>
     </form>
 
     <!-- PASO 3: CONSOLA DE PROCESO Y DESCARGA -->
@@ -131,11 +131,11 @@
 
     // APAGAR SERVIDOR
     btnShutdown.addEventListener('click', async () => {
-        if (confirm('?Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
+        if (confirm('Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
             status.textContent = "Apagando el servidor Node.js...";
             try {
                 await fetch('/shutdown', { method: 'POST' });
-                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pesta?a del navegador.</p></div>';
+                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pestaña del navegador.</p></div>';
             } catch (err) {
                 status.textContent = "No se pudo conectar con el servidor (posiblemente ya está apagado).";
             }
