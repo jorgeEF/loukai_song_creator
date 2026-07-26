@@ -109,6 +109,31 @@ async function fetchLyricsPreview(meta) {
     }
 }
 
+// ================= RUTA BÚSQUEDA MANUAL DE LETRA =================
+app.post('/fetch-lyrics', async (req, res) => {
+    const { artist, title, album, duration } = req.body;
+
+    if (!artist || !title) {
+        return res.status(400).json({ error: 'Se requiere artista y título para buscar.' });
+    }
+
+    try {
+        const meta = {
+            artist: artist.trim(),
+            title: title.trim(),
+            album: album ? album.trim() : '',
+            duration: parseInt(duration) || 0
+        };
+
+        const lyricsData = await fetchLyricsPreview(meta);
+        res.json({ success: true, lyrics: lyricsData });
+    } catch (error) {
+        res.status(500).json({ error: error.toString() });
+    }
+});
+
+
+
 // --- CONVERSIÓN A M4A ---
 function convertToM4a(inputPath, outputPath) {
     return new Promise((resolve, reject) => {

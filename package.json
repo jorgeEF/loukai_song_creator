@@ -1,7 +1,7 @@
 {
-  "name": "creador_loukai",
+  "name": "loukai_song_creator",
   "version": "1.0.0",
-  "description": "creador caciones para loukai karaoke",
+  "description": "creador de caciones para loukai karaoke",
   "license": "ISC",
   "author": "jeF",
   "type": "module",

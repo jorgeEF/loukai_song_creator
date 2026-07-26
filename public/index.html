@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Creador Loukai Stems</title>
+    <title>Loukai Song Creator (by jeF)</title>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #121212; color: #fff; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; }
         .card { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.6); max-width: 520px; width: 100%; position: relative; }
@@ -55,7 +55,7 @@
 
 <div class="card">
     <div class="card-header">
-        <h1>Creador Loukai Karaoke Stems</h1>
+        <h1>Loukai Song Creator by jeF</h1>
         <button type="button" id="btnShutdown" class="btn-shutdown" title="Cerrar aplicación y apagar servidor Node">Apagar App</button>
     </div>
 
@@ -85,7 +85,12 @@
         </div>
         
         <div class="form-group">
-            <label>Letra Sincronizada (LRC):</label>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <label style="margin-bottom: 0;">Letra Sincronizada (LRC):</label>
+                <button type="button" id="btnSearchLyrics" class="btn-shutdown" style="color: #00e676; border-color: #00e676;">
+                    🔍 Buscar Letra
+                </button>
+            </div>
             <span id="lyricsStatus" class="status-badge"></span>
             <textarea id="rawLrc" placeholder="[00:12.34] Texto de la letra..."></textarea>
             <small style="color: #888; font-size: 0.75rem;">Podés corregir las líneas o agregar tu propio formato LRC antes de procesar.</small>
@@ -123,24 +128,59 @@
     const btnReset = document.getElementById('btnReset');
     const btnDownload = document.getElementById('btnDownload');
     const lyricsStatus = document.getElementById('lyricsStatus');
-    const rawLrc = document.getElementById('rawLrc');
+    const rawLrc = document.getElementById('rawLrc');	
+	const btnSearchLyrics = document.getElementById('btnSearchLyrics');
 
     let currentTempFile = '';
     let songDuration = 0;
     let songGenre = '';
+	
+	// BUSCAR LETRA MANUALMENTE TRAS CORREGIR METADATOS
+    btnSearchLyrics.addEventListener('click', async () => {
+        const artist = document.getElementById('artist').value;
+        const title = document.getElementById('title').value;
+        const album = document.getElementById('album').value;
 
-    // APAGAR SERVIDOR
-    btnShutdown.addEventListener('click', async () => {
-        if (confirm('Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
-            status.textContent = "Apagando el servidor Node.js...";
-            try {
-                await fetch('/shutdown', { method: 'POST' });
-                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pestaña del navegador.</p></div>';
-            } catch (err) {
-                status.textContent = "No se pudo conectar con el servidor (posiblemente ya está apagado).";
-            }
+        if (!artist || !title) {
+            alert('Por favor ingresa al menos el Título y el Artista para buscar la letra.');
+            return;
         }
-    });
+
+        btnSearchLyrics.disabled = true;
+        btnSearchLyrics.textContent = "Buscando...";
+        lyricsStatus.textContent = "Buscando en LRCLIB...";
+        lyricsStatus.className = "status-badge badge-warning";
+
+        try {
+            const res = await fetch('/fetch-lyrics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    artist,
+                    title,
+                    album,
+                    duration: songDuration
+                })
+            });
+
+            const data = await res.json();
+
+            if (data.success && data.lyrics.found) {
+                lyricsStatus.textContent = "Letra encontrada exitosamente";
+                lyricsStatus.className = "status-badge badge-success";
+                rawLrc.value = data.lyrics.rawLrc;
+            } else {
+                lyricsStatus.textContent = "No se encontró letra con esos datos";
+                lyricsStatus.className = "status-badge badge-warning";
+            }
+        } catch (err) {
+            lyricsStatus.textContent = "Error al consultar servidor";
+            lyricsStatus.className = "status-badge badge-warning";
+        } finally {
+            btnSearchLyrics.disabled = false;
+            btnSearchLyrics.textContent = "🔍 Buscar Letra";
+        }
+    });    
 
     // SUBIR Y PREVIEW (METADATOS + LETRA)
     audioInput.addEventListener('change', async () => {
@@ -262,6 +302,19 @@
         downloadContainer.classList.add('hidden');
         step1.classList.remove('hidden');
         status.textContent = "";
+    });
+	
+	// APAGAR SERVIDOR
+    btnShutdown.addEventListener('click', async () => {
+        if (confirm('Seguro que deseas cerrar la aplicación y detener el servidor Node?')) {
+            status.textContent = "Apagando el servidor Node.js...";
+            try {
+                await fetch('/shutdown', { method: 'POST' });
+                document.body.innerHTML = '<div class="card" style="text-align:center;"><h2>La aplicación se ha cerrado correctamente.</h2><p style="color:#aaa;">Ya puedes cerrar esta pestaña del navegador.</p></div>';
+            } catch (err) {
+                status.textContent = "No se pudo conectar con el servidor (posiblemente ya está apagado).";
+            }
+        }
     });
 </script>
 
